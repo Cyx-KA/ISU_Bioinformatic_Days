@@ -48,7 +48,7 @@ output <- getResults(query)
 # tumor
 
 # query_brca <- GDCquery(
-#    project = "TCGA-LIHC",
+#    project = "TCGA-GBM",
 #    data.category = "Transcriptome Profiling",
 #    experimental.strategy = "RNA-Seq",
 #    workflow.type = "STAR - Counts",
@@ -84,28 +84,28 @@ matrix_vst <- assay(vsd)
 matrix_vst[1:10,1:10]
 
 # GENE to metadata information
-IDH1 <- matrix_vst %>% 
+MGMT <- matrix_vst %>% 
   as.data.frame() %>% 
   rownames_to_column(var = 'gene_id') %>% 
   gather(key = 'case_id', value = 'counts', -gene_id) %>% 
   left_join(., gene_metadata, by = "gene_id") %>% 
-  filter(gene_name == "IDH1")
+  filter(gene_name == "MGMT")
 
-median_value <- median(IDH1$counts)
+median_value <- median(MGMT$counts)
 
 # By utilizing median value we assign patients into HIGH and LOW expression groups
-IDH1$strata <- ifelse(IDH1$counts >= median_value, "HIGH", "LOW")
+MGMT$strata <- ifelse(MGMT$counts >= median_value, "HIGH", "LOW")
 
-# importing clinical into IDH1
-IDH1$case_id <- gsub('-01.*', '', IDH1$case_id)
-ID1H <- merge(IDH1, clinical, by.x = 'case_id', by.y = 'submitter_id')
+# importing clinical into MGMT
+MGMT$case_id <- gsub('-01.*', '', MGMT$case_id)
+MGMT <- merge(MGMT, clinical, by.x = 'case_id', by.y = 'submitter_id')
 
-fit <- survfit(Surv(overall_survival, deceased) ~ strata, data = IDH1)
+fit <- survfit(Surv(overall_survival, deceased) ~ strata, data = MGMT)
 fit
 ggsurvplot(fit,
-           data = IDH1,
+           data = MGMT,
            pval = T,
            risk.table = T)
 
 
-fit2 <- survdiff(Surv(overall_survival, deceased) ~ strata, data = IDH1)
+fit2 <- survdiff(Surv(overall_survival, deceased) ~ strata, data = MGMT)
