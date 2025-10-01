@@ -1,0 +1,111 @@
+Path <- setwd("~/Desktop/demo/survi")
+setwd(Path)
+#Packages
+library(TCGAbiolinks)
+library(survminer)
+library(survival)
+library(SummarizedExperiment)
+library(tidyverse)
+library(DESeq2)
+
+# Select the cohort
+gdcprojects <- getGDCprojects()
+clinical <- GDCquery_clinic("TCGA-GBM")
+any(colnames(clinical) %in% c("vital_status", "days_to_last_follow_up", "days_to_death"))
+which(colnames(clinical) %in% c("vital_status", "days_to_last_follow_up", "days_to_death"))
+clinical[,c(108,114,120)]
+
+table(clinical$vital_status)
+
+# Modifying certain values
+clinical$deceased <- ifelse(clinical$vital_status == "Alive", FALSE, TRUE)
+
+# "overall survival" variable matching for certain informations
+clinical$overall_survival <- ifelse(clinical$vital_status == "Alive",
+                                    clinical$days_to_last_follow_up,
+                                    clinical$days_to_death)
+
+
+
+
+
+
+#Accessing all RNA-Seq data from the cohort
+query = GDCquery(
+  project = "TCGA-GBM",
+  data.category = "Transcriptome Profiling", 
+  experimental.strategy = "RNA-Seq",
+  workflow.type = "STAR - Counts",
+  data.type = "Gene Expression Quantification",
+  sample.type = "Primary Tumor",
+  access = "open")
+
+output <- getResults(query)
+#------teaching the barcoding not required!!------
+# tumor <- output$cases[1:20]
+# or
+# tumor <- output[output$sample_type == "Primary Tumor", "cases"][1:20]
+# tumor
+
+# query_brca <- GDCquery(
+#    project = "TCGA-LIHC",
+#    data.category = "Transcriptome Profiling",
+#    experimental.strategy = "RNA-Seq",
+#    workflow.type = "STAR - Counts",
+#    data.type = "Gene Expression Quantification",
+#    sample.type = c("Primary Tumor", "Solid Tissue Normal"),
+#    access = "open",
+#    barcode = tumor)
+
+# Download the cohort data
+GDCdownload(query)
+# Prepare the matrix
+data <- GDCprepare(query, summarizedExperiment = TRUE)
+matrix <- assay(data, "unstranded")
+matrix[1:10,1:10]
+
+
+# Filtering metadata information for DESeq2
+gene_metadata <- as.data.frame(rowData(data))
+coldata <- as.data.frame(colData(data))
+
+# Preparing countData from metadata   
+dds <- DESeqDataSetFromMatrix(countData = matrix,
+                              colData = coldata,
+                              design = ~ 1)
+
+# Removing information which has less than 10 reads
+keep <- rowSums(counts(dds)) >= 10
+dds <- dds[keep,]
+
+# vst module for survival analysis
+vsd <- vst(dds, blind=FALSE)
+matrix_vst <- assay(vsd)
+matrix_vst[1:10,1:10]
+
+# GENE to metadata information
+IDH1 <- matrix_vst %>% 
+  as.data.frame() %>% 
+  rownames_to_column(var = 'gene_id') %>% 
+  gather(key = 'case_id', value = 'counts', -gene_id) %>% 
+  left_join(., gene_metadata, by = "gene_id") %>% 
+  filter(gene_name == "IDH1")
+
+median_value <- median(IDH1$counts)
+
+# By utilizing median value we assign patients into HIGH and LOW expression groups
+IDH1$strata <- ifelse(IDH1$counts >= median_value, "HIGH", "LOW")
+
+# importing clinical into IDH1
+IDH1$case_id <- gsub('-01.*', '', IDH1$case_id)
+ID1H <- merge(IDH1, clinical, by.x = 'case_id', by.y = 'submitter_id')
+
+fit <- survfit(Surv(overall_survival, deceased) ~ strata, data = IDH1)
+fit
+ggsurvplot(fit,
+           data = IDH1,
+           pval = T,
+           risk.table = T)
+
+
+fit2 <- survdiff(Surv(overall_survival, deceased) ~ strata, data = IDH1)
