@@ -106,6 +106,3 @@ ggsurvplot(fit,
            data = MGMT,
            pval = T,
            risk.table = T)
-
-
-fit2 <- survdiff(Surv(overall_survival, deceased) ~ strata, data = MGMT)
